@@ -1,189 +1,94 @@
-#include<stdio.h>
-#include<stdlib.h>
-#include<math.h>
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include<omp.h>
 
+// Hyperparameters
 #define learning_rate 0.001
-#define num_features 500
-#define num_edges 88648
-#define num_layers 5
-#define num_nodes 19717
+#define beta1 0.9
+#define beta2 0.999
 #define epsilon 1e-8
 
-typedef struct Node{
-    double  node;
-    double *feature;
-} Node;
 
 
-typedef struct Egdes{
-    double src_node;
-    double dest_node;
-} Edges;
+double loss_cal(double* y_true, double* y_pred) {   //Calculating Loss 
+    double sum = 0.0;
+    for (int i = 0; i < 19717; i++) {
+        double diff = y_true[i] - y_pred[i];
+        sum += diff * diff;
+    }
+    return sum / 19717;
+}
 
-typedef struct GNLayers{
-    double weights[num_features][num_features];
-    double *bias;
-}GNLayers;
-
-void initializeGNLayer(GNLayers * layer) {
-    for (int i = 0; i < num_features; i++) {
-        for (int j = 0; j < num_features; j++) {
-            layer->weights[i][j] = ((float)rand() / RAND_MAX) - 0.5;
-        }
-        layer->bias[i] = 0.0;
+void linear_regression(double** x, double* y_pred, double w, double b) {      // Calculating linear regression
+    //#pragma omp parallel for
+    for (int i = 0; i < 19717; i++) {
+        for(int j = 0; j < 500; j++)
+            y_pred[i] = w * x[i][j] + b;
     }
 }
- 
 
-float relu(float x) {       //activation function
-    return x > 0 ? x : 0;
+
+void compute_gradients(double** x, double* y_true, double* y_pred, double* gradient_w, double* gradient_b) {
+   //#pragma omp parallel for                                     // Calculating gradient descent to miminize loss
+    for (int i = 0; i < 19717; i++) {
+        for(int j = 0; j < 500; j++){
+        double diff = y_true[i] - y_pred[i];
+        gradient_w[0] += -2* x[i][j] * diff;
+        gradient_b[0] +=  -2 * diff;
+        }
+}   
+    gradient_w[0] /= 19717;
+    gradient_b[0] /= 19717;
 }
 
-void messagePassing(Node nodes[], Edges edges[], GNLayers* layer) {
-    for (int i = 0; i < num_nodes; i++) {
-        for (int j = 0; j < num_features; j++) {
-            float new_feature = 0.0;
-            for (int k = 0; k < num_nodes; k++) {
-                if (k != i) {
-                    new_feature += nodes[k].feature[j] * 1;
-                }
+int main() {
+
+    FILE *file;
+    file = fopen("/home/anubhav/GraphNN/GNN/pubmed/features.txt", "r");         // reading the dataset  
+    int rows = 19717;
+    int cols = 500;
+
+    double **x = (double **)malloc(rows * sizeof(double *));
+    for (int i = 0; i < rows; i++) {
+        x[i] = (double *)malloc(cols * sizeof(double));
+    }
+   for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            if (fscanf(file, "%lf", &x[i][j]) != 1) {
+                fprintf(stderr, "Error reading data from the file\n");
+                return 1;
             }
-            nodes[i].feature[j] = relu(new_feature * layer->weights[j][j] + layer->bias[j]);
         }
+   }
+    file = fopen("/home/anubhav/GraphNN/GNN/pubmed/labels.txt", "r");  
+    double *y_true = (double *)malloc(rows * sizeof(double *));
+   for (int i = 0; i < rows; i++) {
+            if (fscanf(file, "%lf", &y_true[i]) != 1) {
+                fprintf(stderr, "Error reading data from the file\n");
+                return 1;
+            }
     }
-}
+    double lo = 0.0;
+    double w = 1.0;
+    double b = 0.0;
+    double y_pred[19717];
+    double gradient_w[1] = {0.0};
+    double gradient_b[1] = {0.0};
+    double start_time = omp_get_wtime();
+    for (int epoch = 0; epoch < 500; epoch++) {
+        linear_regression(x, y_pred, w, b);
+        compute_gradients(x, y_true, y_pred, gradient_w, gradient_b);
 
+        w -= learning_rate * gradient_w[0]; // Update parameters using gradient descent
+        b -= learning_rate * gradient_b[0];
 
-double computeMSE(Node nodes[], double labels[]) {
-    double mse = 0.0;
-    for (int i = 0; i < num_nodes; i++) {
-        for (int j = 0;j<num_features;j++){
-            double prediction = nodes[i].feature[j]; 
-            double error = prediction - labels[i];
-            mse += (error * error);
-        }
+        double loss_ = loss_cal(y_true, y_pred);
+        //printf("Epoch %d: Loss=%.4f, b=%.4f\n", epoch + 1, loss_, b);
+        lo = loss_;
     }
-    return mse / num_nodes;
-}
-
-
-
-double computeGradient(Node nodes[], Edges edges[], GNLayers* layer, double labels[], int node_index, int feature_index) {
-    double loss = computeMSE(nodes, labels);
-    double original_weight = layer->weights[feature_index][feature_index];
-
-
-    layer->weights[feature_index][feature_index] += epsilon;        // Perturb the weight slightly and compute the loss
-    double perturbed_loss = computeMSE(nodes, labels);
-
-    layer->weights[feature_index][feature_index] = original_weight;         // Reset the weight
-
-    double gradient = (perturbed_loss - loss) / epsilon;                // Compute the gradient
-
-    return gradient;
-}
-
-
-
-void backwardPass(Node nodes[], Edges edges[], GNLayers* layer,double labels[]) {
-
-    for (int i = 0; i < num_nodes; i++) {
-        for (int j = 0; j < num_features; j++) {
-            double gradient = computeGradient(nodes, edges, layer, labels, i, j);
-            layer->weights[j][j] -= learning_rate * gradient;
-        }
-    }
-}
-
-
-int main(){
-    GNLayers layers[num_layers];
-    Edges edges[88648];
-    Node nodes[19718];
-
-
-    double labels[88648];
-
-    FILE *src = fopen("/home/anubhav/GraphNN/GNN/pubmed/src.txt", "r");
-    FILE *dest = fopen("/home/anubhav/GraphNN/GNN/pubmed/destination.txt", "r");
-
-    double source, destination;
-    int i = 0;
-    while (fscanf(dest, "%lf", &source) == 1) { // Check the return value of fscanf
-        edges[i].dest_node = source;
-        //printf("%lf  %lf   ", edges[i].src_node,source); // Print the value you just stored
-        i++;
-        if (i == 88648) {
-            break;
-        }
-}
-    // printf("3\n");
-    while (fscanf(src, "%lf", &source) == 1) { // Check the return value of fscanf
-        edges[i].src_node = source;
-        // printf("%lf    ", edges[i].src_node); // Print the value you just stored
-        i++;
-        if (i == 88648) {
-            break;
-        }
-    }
-    i = 0;
-    double prev = -11111;
-    FILE *noddes = fopen("/home/anubhav/GraphNN/GNN/pubmed/src.txt", "r");
-    i = 0;
-    while (fscanf(noddes, "%lf", &destination) ) { 
-        if(prev != destination){
-            prev = destination;
-            nodes[i].node = destination;
-            i++;
-            // printf("%d\n",i);
-        }
-        if(i==19717)
-        break;
-    }
-    int j = 1;
-    i = 0;
-   
-    FILE *feat = fopen("/home/anubhav/GraphNN/GNN/pubmed/features.txt", "r");
-    
-
-    while (fscanf(feat, "%lf", &destination) ==1 ) {
-            nodes[i].feature = (double*)malloc(500 * sizeof(double)); 
-            //printf("%d  %d\n",j,i);
-            nodes[i].feature[j] = destination;
-           // printf("%lf\n",nodes[i].feature[j]);
-            j++;
-        if(j%500==0){
-            i++;
-            j = 0;
-        }
-
-        if(i==19717){
-            break;
-        }
-    }
-    printf("  %lf\n",nodes[19717].feature[7]);
-
-    FILE *label = fopen("/home/anubhav/GraphNN/GNN/pubmed/labels.txt", "r");
-    i = 0;
-    while (fscanf(label, "%lf", &destination) ) { 
-            labels[i] = destination;
-            i++;
-    }
-
-
-
-    for (int epoch = 0; epoch < 100; epoch++) {
-        for (int layer = 0; layer < num_layers; layer++) {
-            messagePassing(nodes, edges, &layers[layer]);
-        }
-
-        double current_mse = computeMSE(nodes, labels);
-        printf("Epoch %d, MSE: %lf\n", epoch, current_mse);
-
-        for (int layer = num_layers - 1; layer >= 0; layer--) {
-            backwardPass(nodes, edges, &layers[layer], labels);
-        }
-    }
-
+    printf("Loss=%.4f, b=%.4f\n", lo, b);
+    double end = omp_get_wtime();
+    printf("%f",end-start_time);
     return 0;
 }
