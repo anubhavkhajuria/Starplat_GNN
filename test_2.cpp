@@ -10,17 +10,19 @@
 #define epsilon 1e-8
 
 typedef struct Node{
-    float node;
-    double feature[num_features];
+    double  node;
+    double *feature;
 } Node;
+
+
 typedef struct Egdes{
-    float src_node;
-    float dest_node;
+    double src_node;
+    double dest_node;
 } Edges;
 
 typedef struct GNLayers{
-    float weights[num_features][num_features];
-    float bias[num_features];
+    double weights[num_features][num_features];
+    double *bias;
 }GNLayers;
 
 void initializeGNLayer(GNLayers * layer) {
@@ -32,19 +34,25 @@ void initializeGNLayer(GNLayers * layer) {
     }
 }
  
-void messagePassing(Node nodes[], Edges edges[], GNLayers* layer) {                // Perform message passing in a GNN layer
-        for (int i = 0; i < num_nodes; i++) {
-            for (int j = 0; j < num_features; j++) {
-                float new_feature = 0.0;
-                for (int k = 0; k < num_nodes; k++) {
-                    if (k != i) {
-                        new_feature += nodes[k].feature[j] * 1;
-                    }
-                }   
-                nodes[i].feature[j] = new_feature * layer->weights[j][j] + layer->bias[j];
+
+float relu(float x) {       //activation function
+    return x > 0 ? x : 0;
+}
+
+void messagePassing(Node nodes[], Edges edges[], GNLayers* layer) {
+    for (int i = 0; i < num_nodes; i++) {
+        for (int j = 0; j < num_features; j++) {
+            float new_feature = 0.0;
+            for (int k = 0; k < num_nodes; k++) {
+                if (k != i) {
+                    new_feature += nodes[k].feature[j] * 1;
+                }
             }
+            nodes[i].feature[j] = relu(new_feature * layer->weights[j][j] + layer->bias[j]);
         }
     }
+}
+
 
 double computeMSE(Node nodes[], double labels[]) {
     double mse = 0.0;
@@ -89,40 +97,71 @@ void backwardPass(Node nodes[], Edges edges[], GNLayers* layer,double labels[]) 
 
 
 int main(){
-
-        GNLayers layers[num_layers];
+    GNLayers layers[num_layers];
     Edges edges[88648];
-    Node nodes[88648];
+    Node nodes[19718];
+
+
     double labels[88648];
+
     FILE *src = fopen("/home/anubhav/GraphNN/GNN/pubmed/src.txt", "r");
     FILE *dest = fopen("/home/anubhav/GraphNN/GNN/pubmed/destination.txt", "r");
 
-     double  source, destination;
-     int i = 0;
-    while (fscanf(src, "%lf", &source)) { 
-            edges[i].src_node = source;
-            i++;
-    }
-    i= 0;
-    while (fscanf(dest, "%lf", &destination) ) { 
-            edges[i].dest_node = destination;
-            i++;
-    }
-    FILE *noddes = fopen("/home/anubhav/GraphNN/GNN/pubmed/node.txt", "r");
-    FILE *feat = fopen("/home/anubhav/GraphNN/GNN/pubmed/features.txt", "r");
-    i = 0;
-    while (fscanf(noddes, "%lf", &destination) ) { 
-            nodes[i].node = destination;
-            i++;
-    }
-    i = 0;
-    while (fscanf(feat, "%lf", &destination) ) { 
-        for (int j = 0; j<num_features; j++){
-            nodes[i].feature[j] = destination;
-            //printf("%lf\n",nodes[i].feature[j]);
-            i++;
+    double source, destination;
+    int i = 0;
+    while (fscanf(dest, "%lf", &source) == 1) { // Check the return value of fscanf
+        edges[i].dest_node = source;
+        //printf("%lf  %lf   ", edges[i].src_node,source); // Print the value you just stored
+        i++;
+        if (i == 88648) {
+            break;
+        }
+}
+    // printf("3\n");
+    while (fscanf(src, "%lf", &source) == 1) { // Check the return value of fscanf
+        edges[i].src_node = source;
+        // printf("%lf    ", edges[i].src_node); // Print the value you just stored
+        i++;
+        if (i == 88648) {
+            break;
         }
     }
+    i = 0;
+    double prev = -11111;
+    FILE *noddes = fopen("/home/anubhav/GraphNN/GNN/pubmed/src.txt", "r");
+    i = 0;
+    while (fscanf(noddes, "%lf", &destination) ) { 
+        if(prev != destination){
+            prev = destination;
+            nodes[i].node = destination;
+            i++;
+            // printf("%d\n",i);
+        }
+        if(i==19717)
+        break;
+    }
+    int j = 1;
+    i = 0;
+   
+    FILE *feat = fopen("/home/anubhav/GraphNN/GNN/pubmed/features.txt", "r");
+    
+
+    while (fscanf(feat, "%lf", &destination) ==1 ) {
+            nodes[i].feature = (double*)malloc(500 * sizeof(double)); 
+            //printf("%d  %d\n",j,i);
+            nodes[i].feature[j] = destination;
+           // printf("%lf\n",nodes[i].feature[j]);
+            j++;
+        if(j%500==0){
+            i++;
+            j = 0;
+        }
+
+        if(i==19717){
+            break;
+        }
+    }
+    printf("  %lf\n",nodes[19717].feature[7]);
 
     FILE *label = fopen("/home/anubhav/GraphNN/GNN/pubmed/labels.txt", "r");
     i = 0;
@@ -146,4 +185,5 @@ int main(){
         }
     }
 
+    return 0;
 }
